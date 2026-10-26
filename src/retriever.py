@@ -16,8 +16,7 @@ def load_chunks(jsonl_path: Path) -> list[dict]:
 def count_keyword_hits(text: str, keywords: list[str]) -> int:
     hits = 0
     for kw in keywords:
-        if kw in text:
-            hits += 1
+        hits += text.count(kw)
     return hits
 
 
