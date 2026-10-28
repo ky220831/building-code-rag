@@ -1,30 +1,37 @@
-from openai import OpenAI
 import os
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
-# 把你的 DeepSeek API key 填在这里，或者从环境变量读
-# 申请地址：https://platform.deepseek.com/
-DEEPSEEK_API_KEY = "在这里填你的key"
+from sentence_transformers import SentenceTransformer
 
-client = OpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com/v1"
-)
+print("正在加载Embedding模型（第一次会下载，需要等几分钟）...")
+
+# 用多语言轻量模型，支持中文
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+
+print("模型加载完成！")
 
 # 测试文本
-test_text = "线性代数研究向量和矩阵运算"
+texts = [
+    "线性代数研究向量和矩阵运算",
+    "梯度下降是一种优化算法",
+    "今天天气很好"
+]
 
-print("测试文本：", test_text)
-print("正在调用Embedding API...")
+print("\n正在向量化...")
+embeddings = model.encode(texts)
 
-try:
-    response = client.embeddings.create(
-        model="deepseek-embedding",
-        input=test_text
-    )
-    embedding = response.data[0].embedding
-    print(f"成功！向量维度：{len(embedding)}")
-    print(f"前5个值：{embedding[:5]}")
-except Exception as e:
-    print(f"调用失败：{e}")
-    print("\n可能原因：DeepSeek 没有 embedding 接口")
-    print("解决方案：换用其他 Embedding 服务（智谱/通义/OpenAI）")
+print(f"向量维度：{embeddings.shape}")
+print(f"第1个向量前5个值：{embeddings[0][:5]}")
+
+# 计算余弦相似度
+import numpy as np
+
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+print("\n=== 余弦相似度测试 ===")
+print(f"文本1 vs 文本2：{cosine_similarity(embeddings[0], embeddings[1]):.4f}")
+print(f"文本1 vs 文本3：{cosine_similarity(embeddings[0], embeddings[2]):.4f}")
+print(f"文本2 vs 文本3：{cosine_similarity(embeddings[1], embeddings[2]):.4f}")
+
+print("\n说明：数值越接近1，说明语义越相似")
