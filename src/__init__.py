@@ -1,0 +1,1 @@
+"""Building-code RAG application."""
