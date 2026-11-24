@@ -133,15 +133,23 @@ python -m unittest discover -s tests -v
 
 ## 关于向量存储
 
-当前版本默认使用本地 `.npz` + NumPy 余弦相似度检索，目的是保持本地运行零外部服务依赖，中小规模规范文档（数千至数万 chunk）下检索延迟在毫秒级。
+支持两种向量后端，通过 `.env` 中的 `VECTOR_BACKEND` 切换：
 
-代码已在 `src/vector_retriever.py` 中抽离了 `BaseVectorRetriever` 基类与 `create_vector_retriever` 工厂函数，后续需要支持文档增量入库或按规范编号/章节做元数据过滤时，可直接接入 Chroma / Qdrant 等向量库并通过 `VECTOR_BACKEND` 切换，无需改动上层检索与 Pipeline 代码。
+- `numpy`（默认）：读取本地 `.npz` 内存检索，零外部库依赖，中小规模规范文档延迟在毫秒级。
+- `chroma`：基于 `ChromaVectorRetriever` 本地持久化存储（`CHROMA_PERSIST_DIR`），支持增量 `upsert` 和按 `source` 规范文件名过滤。
+
+切换为 Chroma 建库与检索示例：
+
+```powershell
+python -m src.embed_chunks --chunks "data/processed/your-code.chunks.jsonl" --backend chroma
+python -m src.hybrid_search "防火分区的设置要求" --backend chroma --source "your-code.txt"
+```
 
 ## 当前边界与后续计划
 
 - 已完成：文本型 PDF 解析、分块、向量 + BM25 混合召回、RRF 融合、CrossEncoder 重排、FastAPI 封装、基础单元测试。
 - 待补充（后续迭代）：
-  - [ ] 接入 Chroma / Qdrant 作为可选向量库后端，支持增量更新与元数据过滤
+  - [x] 接入 Chroma 本地持久化向量库作为可选后端，支持 `upsert` 增量更新与按规范文件名（`source`）过滤
   - [ ] `/chat` 支持 SSE 流式输出与请求级耗时日志（检索耗时 / TTFT）
   - [ ] 增加真实建筑规范数据集的离线召回率评测脚本
   - [ ] 补充 Dockerfile 与基础接口鉴权

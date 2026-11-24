@@ -65,12 +65,22 @@ class RAGPipeline:
             seen.add(key)
         return sources
 
-    def run(self, query: str) -> dict[str, Any]:
+    def run(self, query: str, source_filter: str | None = None) -> dict[str, Any]:
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query 不能为空")
         normalized_query = query.strip()
+        normalized_source = (
+            source_filter.strip()
+            if isinstance(source_filter, str) and source_filter.strip()
+            else None
+        )
 
-        retrieved_results = self.searcher.search(normalized_query)
+        if normalized_source is not None:
+            retrieved_results = self.searcher.search(
+                normalized_query, source_filter=normalized_source
+            )
+        else:
+            retrieved_results = self.searcher.search(normalized_query)
         if not isinstance(retrieved_results, list):
             raise RuntimeError("检索模块必须返回 list")
 

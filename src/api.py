@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class ChatRequest(BaseModel):
     query: str = Field(min_length=1, description="用户问题")
+    source: str | None = Field(default=None, description="可选：限定检索的规范文件名")
 
     @field_validator("query")
     @classmethod
@@ -74,7 +75,11 @@ def create_app(
         if rag_pipeline is None:
             raise HTTPException(status_code=503, detail="RAG Pipeline 尚未就绪")
         try:
-            result: dict[str, Any] = rag_pipeline.run(body.query)
+            result: dict[str, Any] = (
+                rag_pipeline.run(body.query, source_filter=body.source)
+                if body.source
+                else rag_pipeline.run(body.query)
+            )
             return ChatResponse(**result)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

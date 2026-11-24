@@ -14,6 +14,8 @@ class Settings:
     chunks_path: Path = Path(os.getenv("CHUNKS_PATH", "data/processed/sample_code.chunks.jsonl"))
     embeddings_path: Path = Path(os.getenv("EMBEDDINGS_PATH", "data/processed/sample_code.embeddings.npz"))
     vector_backend: str = os.getenv("VECTOR_BACKEND", "numpy").strip().lower()
+    chroma_persist_dir: Path = Path(os.getenv("CHROMA_PERSIST_DIR", "data/processed/chroma_db"))
+    chroma_collection: str = os.getenv("CHROMA_COLLECTION", "building_codes").strip()
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
     reranker_model: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
     use_reranker: bool = os.getenv("USE_RERANKER", "true").strip().lower() in {"1", "true", "yes", "on"}

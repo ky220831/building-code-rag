@@ -77,5 +77,73 @@ class VectorRetrieverTests(unittest.TestCase):
             create_vector_retriever("unknown_db", Path("dummy.npz"), _DummyEmbeddingModel())
 
 
+
+
+from src.vector_retriever import ChromaVectorRetriever
+
+
+class _FakeChromaCollection:
+    def __init__(self):
+        self.items: dict[str, dict] = {}
+
+    def upsert(self, ids, embeddings, documents, metadatas):
+        for cid, emb, doc, meta in zip(ids, embeddings, documents, metadatas):
+            self.items[str(cid)] = {
+                "embedding": np.asarray(emb, dtype=np.float32),
+                "document": doc,
+                "metadata": meta,
+            }
+
+    def get(self, include=None):
+        return {"ids": list(self.items.keys())}
+
+    def count(self):
+        return len(self.items)
+
+    def query(self, query_embeddings, n_results, include=None, where=None):
+        q = np.asarray(query_embeddings[0], dtype=np.float32)
+        q_norm = float(np.linalg.norm(q))
+        scored = []
+        for cid, rec in self.items.items():
+            if where and any(rec["metadata"].get(k) != v for k, v in where.items()):
+                continue
+            emb = rec["embedding"]
+            sim = float(np.dot(emb, q) / (np.linalg.norm(emb) * q_norm))
+            scored.append((1.0 - sim, cid))
+        scored.sort(key=lambda pair: pair[0])
+        top = scored[:n_results]
+        return {
+            "ids": [[cid for _, cid in top]],
+            "distances": [[dist for dist, _ in top]],
+        }
+
+
+class ChromaRetrieverTests(unittest.TestCase):
+    def test_upsert_search_and_source_filter(self):
+        fake_col = _FakeChromaCollection()
+        retriever = ChromaVectorRetriever(
+            embedding_model=_DummyEmbeddingModel(),
+            collection=fake_col,
+        )
+        chunks = [
+            {"chunk_id": 10, "text": "规范A条款", "source": "GB50016.txt", "start_page": 3, "end_page": 3},
+            {"chunk_id": 20, "text": "规范B条款", "source": "GB50073.txt", "start_page": 5, "end_page": 5},
+        ]
+        embeddings = np.array([[0.2, 0.98], [1.0, 0.0]], dtype=np.float32)
+        inserted = retriever.upsert_chunks(chunks, embeddings)
+        self.assertEqual(inserted, 2)
+        self.assertEqual(set(retriever.chunk_ids.tolist()), {10, 20})
+
+        # Unfiltered: chunk 20 matches [1, 0] best
+        hits = retriever.search("防火分区", top_k=2)
+        self.assertEqual(hits[0]["chunk_id"], 20)
+        self.assertAlmostEqual(hits[0]["vector_score"], 1.0, places=5)
+
+        # Filtered by source: only GB50016.txt is returned
+        filtered = retriever.search("防火分区", top_k=2, source_filter="GB50016.txt")
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["chunk_id"], 10)
+
+
 if __name__ == "__main__":
     unittest.main()

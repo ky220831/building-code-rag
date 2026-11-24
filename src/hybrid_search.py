@@ -25,6 +25,9 @@ class HybridSearch:
         embedding_model_name: str | None = None,
         reranker_model_name: str | None = None,
         use_reranker: bool | None = None,
+        vector_backend: str | None = None,
+        chroma_persist_dir: Path | None = None,
+        chroma_collection: str | None = None,
     ):
         self.chunks_path = chunks_path or settings.chunks_path
         self.embeddings_path = embeddings_path or settings.embeddings_path
@@ -33,8 +36,18 @@ class HybridSearch:
         if not self.chunk_map:
             raise ValueError("Chunk 文件中没有记录")
 
+        chunk_sources = {
+            cid: str(chunk.get("source", "")).strip() for cid, chunk in self.chunk_map.items()
+        }
         self.embedding_model = SentenceTransformer(embedding_model_name or settings.embedding_model)
-        self.vector_retriever = create_vector_retriever(settings.vector_backend, self.embeddings_path, self.embedding_model)
+        self.vector_retriever = create_vector_retriever(
+            backend=vector_backend or settings.vector_backend,
+            embeddings_path=self.embeddings_path,
+            embedding_model=self.embedding_model,
+            chroma_persist_dir=chroma_persist_dir or settings.chroma_persist_dir,
+            chroma_collection=chroma_collection or settings.chroma_collection,
+            chunk_sources=chunk_sources,
+        )
         embedded_ids = set(int(value) for value in self.vector_retriever.chunk_ids.tolist())
         unknown_ids = embedded_ids - set(self.chunk_map)
         if unknown_ids:
@@ -52,6 +65,7 @@ class HybridSearch:
         fused_top_k: int | None = None,
         top_k: int | None = None,
         rrf_k: int | None = None,
+        source_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         if not isinstance(query, str) or not query.strip():
             return []
@@ -62,8 +76,8 @@ class HybridSearch:
         final_limit = settings.final_top_k if top_k is None else top_k
         fusion_k = settings.rrf_k if rrf_k is None else rrf_k
 
-        vector_results = self.vector_retriever.search(query, vector_limit)
-        bm25_results = self.bm25_retriever.search(query, bm25_limit)
+        vector_results = self.vector_retriever.search(query, vector_limit, source_filter=source_filter)
+        bm25_results = self.bm25_retriever.search(query, bm25_limit, source_filter=source_filter)
         fused_results = reciprocal_rank_fusion(
             vector_results=vector_results,
             bm25_results=bm25_results,
@@ -99,7 +113,7 @@ def print_results(results: list[dict[str, Any]]) -> None:
     if not results:
         print("没有找到相关结果。")
         return
-    print(f"\n返回 Top {len(results)} 条结果")
+
     for index, item in enumerate(results, start=1):
         print("-" * 72)
         print(
@@ -118,6 +132,8 @@ def main() -> None:
     parser.add_argument("query", help="用户查询")
     parser.add_argument("--chunks", default=str(settings.chunks_path))
     parser.add_argument("--embeddings", default=str(settings.embeddings_path))
+    parser.add_argument("--backend", choices=["numpy", "chroma"], default=settings.vector_backend)
+    parser.add_argument("--source", default=None, help="可选：限定规范来源文件名")
     parser.add_argument("--vector-top-k", type=int, default=settings.vector_top_k)
     parser.add_argument("--bm25-top-k", type=int, default=settings.bm25_top_k)
     parser.add_argument("--fused-top-k", type=int, default=settings.fused_top_k)
@@ -129,6 +145,7 @@ def main() -> None:
         chunks_path=Path(args.chunks),
         embeddings_path=Path(args.embeddings),
         use_reranker=not args.no_reranker,
+        vector_backend=args.backend,
     )
     results = searcher.search(
         args.query,
@@ -136,6 +153,7 @@ def main() -> None:
         bm25_top_k=args.bm25_top_k,
         fused_top_k=args.fused_top_k,
         top_k=args.top_k,
+        source_filter=args.source,
     )
     print_results(results)
 

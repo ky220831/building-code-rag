@@ -14,24 +14,30 @@ class BM25Retriever:
         if not self.chunks:
             raise ValueError("没有非空 chunk，无法建立 BM25 索引")
 
-        self.chunk_ids = [int(chunk["chunk_id"]) for chunk in self.chunks]
-        tokenized_corpus = [self.tokenize(chunk["text"]) for chunk in self.chunks]
-        non_empty_pairs = [
-            (chunk_id, tokens)
-            for chunk_id, tokens in zip(self.chunk_ids, tokenized_corpus)
-            if tokens
-        ]
-        if not non_empty_pairs:
+        tokenized_pairs = []
+        for chunk in self.chunks:
+            tokens = self.tokenize(chunk["text"])
+            if tokens:
+                tokenized_pairs.append(
+                    (int(chunk["chunk_id"]), str(chunk.get("source", "")).strip(), tokens)
+                )
+        if not tokenized_pairs:
             raise ValueError("Chunk 分词后全部为空，无法建立 BM25 索引")
 
-        self.chunk_ids = [chunk_id for chunk_id, _ in non_empty_pairs]
-        self.bm25 = BM25Okapi([tokens for _, tokens in non_empty_pairs])
+        self.chunk_ids = [item[0] for item in tokenized_pairs]
+        self.chunk_sources = [item[1] for item in tokenized_pairs]
+        self.bm25 = BM25Okapi([item[2] for item in tokenized_pairs])
 
     @staticmethod
     def tokenize(text: str) -> list[str]:
         return [token.strip() for token in jieba.lcut(text) if token.strip()]
 
-    def search(self, query: str, top_k: int = 20) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 20,
+        source_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
         if top_k <= 0:
             raise ValueError("top_k 必须大于 0")
         if not isinstance(query, str) or not query.strip():
@@ -41,10 +47,13 @@ class BM25Retriever:
         if not query_tokens:
             return []
 
+        target_source = source_filter.strip() if isinstance(source_filter, str) and source_filter.strip() else None
         scores = self.bm25.get_scores(query_tokens)
         ranked_indices = np_argsort_descending(scores)
         results: list[dict[str, Any]] = []
         for index in ranked_indices:
+            if target_source and self.chunk_sources[index] != target_source:
+                continue
             score = float(scores[index])
             if score <= 0:
                 continue
