@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from src.rag_pipeline import RAGPipeline, build_pipeline
@@ -35,6 +37,11 @@ class ChatResponse(BaseModel):
     sources: list[SourceItem]
 
 
+def _format_sse(event: str, data: dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
 def create_app(
     pipeline: RAGPipeline | None = None,
     pipeline_factory: Callable[[], RAGPipeline] = build_pipeline,
@@ -51,7 +58,7 @@ def create_app(
                 raise
         yield
 
-    app = FastAPI(title="Building Code RAG API", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="Building Code RAG API", version="1.1.0", lifespan=lifespan)
 
     @app.get("/health")
     def health(request: Request) -> dict[str, str]:
@@ -89,6 +96,36 @@ def create_app(
         except Exception as exc:
             logger.exception("Chat 接口发生未预期异常")
             raise HTTPException(status_code=500, detail="服务器内部错误") from exc
+
+    @app.post("/chat/stream")
+    def chat_stream(body: ChatRequest, request: Request) -> StreamingResponse:
+        rag_pipeline = getattr(request.app.state, "rag_pipeline", None)
+        if rag_pipeline is None:
+            raise HTTPException(status_code=503, detail="RAG Pipeline 尚未就绪")
+
+        def event_generator() -> Iterator[str]:
+            try:
+                stream = (
+                    rag_pipeline.run_stream(body.query, source_filter=body.source)
+                    if body.source
+                    else rag_pipeline.run_stream(body.query)
+                )
+                for item in stream:
+                    yield _format_sse(item["event"], item["data"])
+            except ValueError as exc:
+                yield _format_sse("error", {"detail": str(exc)})
+            except RuntimeError as exc:
+                logger.exception("RAG 流式处理失败")
+                yield _format_sse("error", {"detail": "RAG 检索或生成服务异常"})
+            except Exception:
+                logger.exception("Chat stream 接口发生未预期异常")
+                yield _format_sse("error", {"detail": "服务器内部错误"})
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app
 

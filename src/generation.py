@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterator
 
 from src.config import settings
 
@@ -81,3 +81,33 @@ class GenerationService:
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("LLM 返回的 answer 为空或格式无效")
         return content.strip()
+
+    def generate_stream(self, query: str, chunks: list[dict[str, Any]]) -> Iterator[str]:
+        """以流式方式逐段产出 LLM 生成文本，供 SSE 接口使用。"""
+        prompt = self.build_prompt(query, chunks)
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=settings.llm_temperature,
+                stream=True,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"LLM 流式 API 调用失败：{type(exc).__name__}") from exc
+
+        emitted = False
+        try:
+            for event in stream:
+                choices = getattr(event, "choices", None)
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                piece = getattr(delta, "content", None)
+                if isinstance(piece, str) and piece:
+                    emitted = True
+                    yield piece
+        except Exception as exc:
+            raise RuntimeError(f"LLM 流式读取中断：{type(exc).__name__}") from exc
+
+        if not emitted:
+            raise RuntimeError("LLM 流式返回为空")

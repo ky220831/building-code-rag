@@ -67,5 +67,38 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(searcher.calls, 0)
 
 
+    def test_sources_only_keep_cited_chunks(self):
+        searcher = FakeSearch([
+            {"chunk_id": 1, "source": "norm.txt", "start_page": 1, "text": "封面内容"},
+            {"chunk_id": 2, "source": "norm.txt", "start_page": 2, "text": "前言内容"},
+            {"chunk_id": 3, "source": "norm.txt", "start_page": 6, "text": "3.1.1 规定不低于18℃"},
+        ])
+
+        class _CiteThirdGenerator:
+            def generate(self, query, chunks):
+                return "室内设计温度不低于18℃。[资料3]"
+
+        result = RAGPipeline(searcher, _CiteThirdGenerator()).run("3.1.1 内容是什么？")
+        self.assertEqual(result["sources"], [{"source": "norm.txt", "page": 6}])
+
+    def test_run_stream_yields_delta_sources_and_done(self):
+        searcher = FakeSearch([
+            {"chunk_id": 1, "source": "norm.txt", "start_page": 6, "text": "办公室新风量30"},
+            {"chunk_id": 2, "source": "norm.txt", "start_page": 13, "text": "其他无关条文"},
+        ])
+
+        class _StreamGenerator:
+            def generate_stream(self, query, chunks):
+                yield "办公室最小新风量为 30 m³/(h·人)"
+                yield "。[资料1]"
+
+        events = list(RAGPipeline(searcher, _StreamGenerator()).run_stream("办公室新风量"))
+        self.assertEqual([e["event"] for e in events], ["delta", "delta", "sources", "done"])
+        self.assertEqual(events[2]["data"]["sources"], [{"source": "norm.txt", "page": 6}])
+        self.assertIn("retrieval_ms", events[3]["data"])
+        self.assertIn("ttft_ms", events[3]["data"])
+        self.assertIn("total_ms", events[3]["data"])
+
+
 if __name__ == "__main__":
     unittest.main()

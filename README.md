@@ -107,7 +107,8 @@ uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload
 
 - `GET /health`：检查 Pipeline 初始化状态
 - `GET /documents`：列出当前加载的知识库文件名
-- `POST /chat`：传入 `{"query": "..."}`，返回答案与引用来源
+- `POST /chat`：传入 `{"query": "...", "source": "可选规范名"}`，返回答案与实际被引用的来源页码
+- `POST /chat/stream`：SSE 流式问答，依次推送 `delta`、`sources`、`done`（含检索耗时与首字延迟 `ttft_ms`）事件
 
 返回示例：
 
@@ -150,7 +151,7 @@ python -m src.hybrid_search "防火分区的设置要求" --backend chroma --sou
 - 已完成：文本型 PDF 解析、分块、向量 + BM25 混合召回、RRF 融合、CrossEncoder 重排、FastAPI 封装、基础单元测试。
 - 待补充（后续迭代）：
   - [x] 接入 Chroma 本地持久化向量库作为可选后端，支持 `upsert` 增量更新与按规范文件名（`source`）过滤
-  - [ ] `/chat` 支持 SSE 流式输出与请求级耗时日志（检索耗时 / TTFT）
+  - [x] 新增 `POST /chat/stream` SSE 流式输出、分段耗时日志（`retrieval_ms` / `ttft_ms` / `total_ms`）、按 `[资料N]` 过滤引用来源及目录页自动跳过
   - [ ] 增加真实建筑规范数据集的离线召回率评测脚本
   - [ ] 补充 Dockerfile 与基础接口鉴权
   - [ ] 扫描件 PDF 的 OCR 预处理

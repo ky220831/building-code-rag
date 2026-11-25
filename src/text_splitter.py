@@ -34,13 +34,36 @@ def parse_pages(text: str) -> list[dict]:
     return pages
 
 
+
+TOC_HEADER_RE = re.compile(r"^\s*目\s*[录次]\s*$", re.MULTILINE)
+TOC_LINE_RE = re.compile(r"(\.{3,}|·{3,}|…{2,})\s*\d+\s*$")
+
+
+def is_toc_page(content: str) -> bool:
+    """识别建筑规范的目录/目次页，避免目录条文标题污染检索索引。"""
+    if not content or not content.strip():
+        return False
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not lines:
+        return False
+    dotted_lines = sum(1 for line in lines if TOC_LINE_RE.search(line))
+    if dotted_lines >= 3:
+        return True
+    if TOC_HEADER_RE.search(content) and dotted_lines >= 1:
+        return True
+    return False
+
+
 def split_paragraphs(page_content: str) -> list[str]:
     parts = re.split(r"\n\s*\n", page_content)
     return [part.strip() for part in parts if part.strip()]
 
 
 def split_by_paragraphs(
-    pages: list[dict], chunk_size: int = 800, chunk_overlap: int = 100
+    pages: list[dict],
+    chunk_size: int = 800,
+    chunk_overlap: int = 100,
+    skip_toc: bool = True,
 ) -> list[dict]:
     if chunk_size <= 0:
         raise ValueError("chunk_size 必须大于 0")
@@ -65,7 +88,11 @@ def split_by_paragraphs(
 
     for page_info in pages:
         page_number = int(page_info["page"])
-        paragraphs = split_paragraphs(str(page_info.get("content", "")))
+        raw_content = str(page_info.get("content", ""))
+        if skip_toc and is_toc_page(raw_content):
+            append_chunk("", page_number, page_number)
+            continue
+        paragraphs = split_paragraphs(raw_content)
         if not paragraphs:
             append_chunk("", page_number, page_number)
             continue

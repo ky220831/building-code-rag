@@ -113,7 +113,7 @@ def print_results(results: list[dict[str, Any]]) -> None:
     if not results:
         print("没有找到相关结果。")
         return
-
+    print(f"\n返回 Top {len(results)} 条结果")
     for index, item in enumerate(results, start=1):
         print("-" * 72)
         print(

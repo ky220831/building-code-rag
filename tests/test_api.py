@@ -23,6 +23,10 @@ class FakeGenerator:
     def generate(self, query, chunks):
         return "测试回答 [资料1]"
 
+    def generate_stream(self, query, chunks):
+        yield "测试"
+        yield "回答 [资料1]"
+
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
@@ -52,6 +56,17 @@ class ApiTests(unittest.TestCase):
         response = self.client.get("/documents")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"documents": ["code.pdf"]})
+
+
+    def test_chat_stream_endpoint(self):
+        response = self.client.post("/chat/stream", json={"query": "问题？"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
+        body = response.text
+        self.assertIn("event: delta", body)
+        self.assertIn("event: sources", body)
+        self.assertIn("event: done", body)
+        self.assertIn("code.pdf", body)
 
 
 if __name__ == "__main__":
