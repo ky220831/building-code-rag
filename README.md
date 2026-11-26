@@ -132,6 +132,14 @@ uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload
 python -m unittest discover -s tests -v
 ```
 
+## 离线检索评测
+
+不消耗 LLM Token，直接对比 5 组检索策略的 Hit@1、Hit@5、MRR@5 与平均耗时，并自动生成 `docs/eval_retrieval_report.md`：
+
+```powershell
+python -m eval.eval_retrieval --questions eval/questions.json --backend chroma
+```
+
 ## 关于向量存储
 
 支持两种向量后端，通过 `.env` 中的 `VECTOR_BACKEND` 切换：
@@ -152,6 +160,6 @@ python -m src.hybrid_search "防火分区的设置要求" --backend chroma --sou
 - 待补充（后续迭代）：
   - [x] 接入 Chroma 本地持久化向量库作为可选后端，支持 `upsert` 增量更新与按规范文件名（`source`）过滤
   - [x] 新增 `POST /chat/stream` SSE 流式输出、分段耗时日志（`retrieval_ms` / `ttft_ms` / `total_ms`）、按 `[资料N]` 过滤引用来源及目录页自动跳过
-  - [ ] 增加真实建筑规范数据集的离线召回率评测脚本
+  - [x] 新增离线检索评测脚本 `eval/eval_retrieval.py`（自动对比 Vector / BM25 / Hybrid / Rerank Top-10 & Top-20 的 Hit@1、Hit@5、MRR@5 与平均耗时）
   - [ ] 补充 Dockerfile 与基础接口鉴权
   - [ ] 扫描件 PDF 的 OCR 预处理
