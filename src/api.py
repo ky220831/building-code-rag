@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
+from src.config import settings
 from src.rag_pipeline import RAGPipeline, build_pipeline
 
 logger = logging.getLogger(__name__)
@@ -42,10 +44,24 @@ def _format_sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+def _verify_api_key(request: Request, expected_token: str) -> None:
+    """当配置了 API_AUTH_TOKEN 时，校验请求头 X-API-Key。"""
+    if not expected_token:
+        return
+    provided = request.headers.get("X-API-Key", "").strip()
+    if not provided or not hmac.compare_digest(provided, expected_token):
+        raise HTTPException(status_code=401, detail="无效或缺少 X-API-Key")
+
+
 def create_app(
     pipeline: RAGPipeline | None = None,
     pipeline_factory: Callable[[], RAGPipeline] = build_pipeline,
+    api_auth_token: str | None = None,
 ) -> FastAPI:
+    required_token = (
+        settings.api_auth_token if api_auth_token is None else api_auth_token.strip()
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if pipeline is not None:
@@ -58,7 +74,7 @@ def create_app(
                 raise
         yield
 
-    app = FastAPI(title="Building Code RAG API", version="1.1.0", lifespan=lifespan)
+    app = FastAPI(title="Building Code RAG API", version="1.2.0", lifespan=lifespan)
 
     @app.get("/health")
     def health(request: Request) -> dict[str, str]:
@@ -68,6 +84,7 @@ def create_app(
 
     @app.get("/documents")
     def documents(request: Request) -> dict[str, list[str]]:
+        _verify_api_key(request, required_token)
         rag_pipeline = getattr(request.app.state, "rag_pipeline", None)
         if rag_pipeline is None:
             raise HTTPException(status_code=503, detail="RAG Pipeline 尚未就绪")
@@ -78,6 +95,7 @@ def create_app(
 
     @app.post("/chat", response_model=ChatResponse)
     def chat(body: ChatRequest, request: Request) -> ChatResponse:
+        _verify_api_key(request, required_token)
         rag_pipeline = getattr(request.app.state, "rag_pipeline", None)
         if rag_pipeline is None:
             raise HTTPException(status_code=503, detail="RAG Pipeline 尚未就绪")
@@ -99,6 +117,7 @@ def create_app(
 
     @app.post("/chat/stream")
     def chat_stream(body: ChatRequest, request: Request) -> StreamingResponse:
+        _verify_api_key(request, required_token)
         rag_pipeline = getattr(request.app.state, "rag_pipeline", None)
         if rag_pipeline is None:
             raise HTTPException(status_code=503, detail="RAG Pipeline 尚未就绪")
@@ -114,7 +133,7 @@ def create_app(
                     yield _format_sse(item["event"], item["data"])
             except ValueError as exc:
                 yield _format_sse("error", {"detail": str(exc)})
-            except RuntimeError as exc:
+            except RuntimeError:
                 logger.exception("RAG 流式处理失败")
                 yield _format_sse("error", {"detail": "RAG 检索或生成服务异常"})
             except Exception:

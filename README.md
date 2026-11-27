@@ -132,13 +132,37 @@ uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload
 python -m unittest discover -s tests -v
 ```
 
-## 离线检索评测
+## 离线检索评测与实测结果
 
-不消耗 LLM Token，直接对比 5 组检索策略的 Hit@1、Hit@5、MRR@5 与平均耗时，并自动生成 `docs/eval_retrieval_report.md`：
+在真实规范《民用建筑供暖通风与空气调节通用规范》12 题离线对照评测集（Chroma 后端 + `source` 元数据过滤，CPU 环境）上的实测结果（完整报告见 `docs/eval_retrieval_report.md`）：
+
+| 检索策略 | 评测题数 | Hit@1 | Hit@5 | MRR@5 | 平均耗时 (ms) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Vector Only (chroma) | 12 | 41.7% | 75.0% | 0.542 | 23.0 |
+| BM25 Only | 12 | 91.7% | 100.0% | 0.958 | 0.4 |
+| Hybrid (Vector+BM25+RRF, 无重排) | 12 | 33.3% | 100.0% | 0.586 | 23.5 |
+| Hybrid + Rerank (FUSED_TOP_K=10) | 12 | 100.0% | 100.0% | 1.000 | 8822.2 |
+| Hybrid + Rerank (FUSED_TOP_K=20) | 12 | 100.0% | 100.0% | 1.000 | 17775.6 |
+
+主要结论：
+- 纯向量对规范条文编号与术语敏感度不足（Hit@1 41.7%）；混合召回 + RRF 将 Hit@5 提升至 100%，再叠加 CrossEncoder 重排将 Hit@1 / MRR@5 均拉升至满分。
+- 将送入重排的候选数 `FUSED_TOP_K` 由 20 调优至 10，精度无损且 CPU 平均耗时下降 **50.4%**（17.8s → 8.8s）。
+- 10 题端到端问答基线实测 10/10 准确、0 幻觉（明细见 `docs/eval_baseline_10cases.md`），流式首字延迟（TTFT）热启动约 0.8s。
+
+运行评测命令（不消耗 LLM API Token）：
 
 ```powershell
 python -m eval.eval_retrieval --questions eval/questions.json --backend chroma
 ```
+
+## Docker 部署与接口鉴权
+
+```powershell
+docker build -t building-code-rag .
+docker run --rm -p 8000:8000 --env-file .env -v "${PWD}/data:/app/data" building-code-rag
+```
+
+如需保护线上接口，在 `.env` 设置 `API_AUTH_TOKEN=<你的密钥>` 后，调用 `/chat`、`/chat/stream`、`/documents` 需在请求头携带 `X-API-Key: <你的密钥>`（`/health` 保持开放供健康检查使用）。
 
 ## 关于向量存储
 
@@ -161,5 +185,5 @@ python -m src.hybrid_search "防火分区的设置要求" --backend chroma --sou
   - [x] 接入 Chroma 本地持久化向量库作为可选后端，支持 `upsert` 增量更新与按规范文件名（`source`）过滤
   - [x] 新增 `POST /chat/stream` SSE 流式输出、分段耗时日志（`retrieval_ms` / `ttft_ms` / `total_ms`）、按 `[资料N]` 过滤引用来源及目录页自动跳过
   - [x] 新增离线检索评测脚本 `eval/eval_retrieval.py`（自动对比 Vector / BM25 / Hybrid / Rerank Top-10 & Top-20 的 Hit@1、Hit@5、MRR@5 与平均耗时）
-  - [ ] 补充 Dockerfile 与基础接口鉴权
+  - [x] 补充 `Dockerfile` / `.dockerignore` 与可选 `X-API-Key` 接口鉴权（`API_AUTH_TOKEN`）
   - [ ] 扫描件 PDF 的 OCR 预处理

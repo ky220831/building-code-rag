@@ -69,5 +69,34 @@ class ApiTests(unittest.TestCase):
         self.assertIn("code.pdf", body)
 
 
+
+class ApiAuthTests(unittest.TestCase):
+    def setUp(self):
+        pipeline = RAGPipeline(FakeSearch(), FakeGenerator())
+        self.client = TestClient(create_app(pipeline=pipeline, api_auth_token="secret-token"))
+        self.client.__enter__()
+
+    def tearDown(self):
+        self.client.__exit__(None, None, None)
+
+    def test_health_remains_accessible_without_api_key(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+
+    def test_chat_requires_valid_api_key_when_enabled(self):
+        res_missing = self.client.post("/chat", json={"query": "问题？"})
+        self.assertEqual(res_missing.status_code, 401)
+
+        res_wrong = self.client.post(
+            "/chat", json={"query": "问题？"}, headers={"X-API-Key": "wrong"}
+        )
+        self.assertEqual(res_wrong.status_code, 401)
+
+        res_ok = self.client.post(
+            "/chat", json={"query": "问题？"}, headers={"X-API-Key": "secret-token"}
+        )
+        self.assertEqual(res_ok.status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

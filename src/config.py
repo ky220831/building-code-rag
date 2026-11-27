@@ -21,9 +21,10 @@ class Settings:
     use_reranker: bool = os.getenv("USE_RERANKER", "true").strip().lower() in {"1", "true", "yes", "on"}
     vector_top_k: int = int(os.getenv("VECTOR_TOP_K", "20"))
     bm25_top_k: int = int(os.getenv("BM25_TOP_K", "20"))
-    fused_top_k: int = int(os.getenv("FUSED_TOP_K", "20"))
+    fused_top_k: int = int(os.getenv("FUSED_TOP_K", "10"))
     final_top_k: int = int(os.getenv("FINAL_TOP_K", "5"))
     rrf_k: int = int(os.getenv("RRF_K", "60"))
+    api_auth_token: str = os.getenv("API_AUTH_TOKEN", "").strip()
     llm_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
     llm_model: str = os.getenv("LLM_MODEL", "deepseek-chat")
